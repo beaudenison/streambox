@@ -1,0 +1,545 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>streambox control</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            fontFamily: {
+              display: ["Space Grotesk", "sans-serif"],
+              mono: ["IBM Plex Mono", "monospace"],
+            },
+            colors: {
+              panel: "#111827",
+              ink: "#f8fafc",
+              accent: "#22d3ee",
+              warning: "#f59e0b",
+              danger: "#fb7185",
+            },
+            boxShadow: {
+              neon: "0 0 0 1px rgba(34,211,238,.35), 0 8px 40px rgba(6,182,212,.2)",
+            },
+          },
+        },
+      };
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg-0: #000000;
+        --bg-1: #070707;
+        --bg-2: #101010;
+        --surface-1: #161616;
+        --surface-2: #1f1f1f;
+        --ink-1: #f5f5f5;
+        --ink-2: #9ca3af;
+        --brand: #d4d4d4;
+        --brand-2: #a3a3a3;
+        --ok: #bdbdbd;
+        --danger: #737373;
+        --line-soft: rgba(255, 255, 255, 0.08);
+        --line-strong: rgba(255, 255, 255, 0.35);
+      }
+
+      body {
+        background:
+          radial-gradient(circle at 8% 3%, rgba(255, 255, 255, 0.08), transparent 30%),
+          radial-gradient(circle at 98% 0%, rgba(255, 255, 255, 0.05), transparent 20%),
+          radial-gradient(circle at 50% 100%, rgba(255, 255, 255, 0.06), transparent 28%),
+          linear-gradient(155deg, var(--bg-0) 0%, var(--bg-1) 42%, var(--bg-2) 100%);
+        color: var(--ink-1);
+      }
+
+      main {
+        position: relative;
+      }
+
+      main::before {
+        content: "";
+        position: absolute;
+        inset: -20px;
+        z-index: -1;
+        border-radius: 28px;
+        background: linear-gradient(120deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.04));
+        filter: blur(40px);
+      }
+
+      .panel {
+        background:
+          linear-gradient(180deg, rgba(22, 22, 22, 0.94), rgba(12, 12, 12, 0.96)),
+          radial-gradient(circle at 100% 0, rgba(255, 255, 255, 0.07), transparent 24%);
+        backdrop-filter: blur(8px);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03), 0 10px 30px rgba(0, 0, 0, 0.35);
+      }
+
+      .status-card {
+        border: 1px solid var(--line-soft);
+        background: linear-gradient(180deg, rgba(28, 28, 28, 0.82), rgba(10, 10, 10, 0.95));
+        transition: border-color 0.2s ease, transform 0.2s ease;
+      }
+
+      .status-card:hover {
+        border-color: var(--line-strong);
+        transform: translateY(-1px);
+      }
+
+      .status-number {
+        font-size: 1.65rem;
+        line-height: 1.1;
+        letter-spacing: -0.02em;
+      }
+
+      .ui-input {
+        width: 100%;
+        border-radius: 0.8rem;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: linear-gradient(180deg, rgba(30, 31, 34, 0.9), rgba(43, 45, 49, 0.84));
+        padding: 0.62rem 0.78rem;
+        font-size: 0.875rem;
+        color: var(--ink-1);
+        outline: none;
+        transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease;
+      }
+
+      .ui-input::placeholder {
+        color: var(--ink-2);
+      }
+
+      .ui-input:focus {
+        border-color: rgba(88, 101, 242, 0.85);
+        box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.18);
+      }
+
+      .btn {
+        border-radius: 0.8rem;
+        border: 1px solid transparent;
+        padding: 0.56rem 0.95rem;
+        font-size: 0.79rem;
+        font-weight: 700;
+        letter-spacing: 0.01em;
+        transition: transform 0.15s ease, filter 0.2s ease, box-shadow 0.2s ease;
+      }
+
+      .btn:hover {
+        transform: translateY(-1px);
+      }
+
+      .btn:active {
+        transform: translateY(0);
+      }
+
+      .btn:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.22);
+      }
+
+      .btn-primary {
+        color: #eef2ff;
+        background: linear-gradient(135deg, #6366f1, #4f46e5);
+        box-shadow: 0 8px 20px rgba(79, 70, 229, 0.35);
+      }
+
+      .btn-success {
+        color: #ecfdf5;
+        border-color: rgba(22, 163, 74, 0.55);
+        background: linear-gradient(140deg, rgba(34, 197, 94, 0.94), rgba(21, 128, 61, 0.96));
+        box-shadow: 0 8px 18px rgba(22, 163, 74, 0.32);
+      }
+
+      .btn-danger {
+        color: #fff1f2;
+        border-color: rgba(225, 29, 72, 0.5);
+        background: linear-gradient(140deg, rgba(244, 63, 94, 0.92), rgba(190, 24, 93, 0.96));
+        box-shadow: 0 8px 18px rgba(225, 29, 72, 0.32);
+      }
+
+      .btn-ghost {
+        color: #f2f3f5;
+        border-color: rgba(255, 255, 255, 0.1);
+        background: linear-gradient(180deg, rgba(41, 41, 41, 0.78), rgba(22, 22, 22, 0.9));
+      }
+
+      .chip {
+        border-radius: 0.7rem;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: linear-gradient(180deg, rgba(30, 30, 30, 0.84), rgba(12, 12, 12, 0.94));
+      }
+
+      .discord-subtle {
+        color: var(--ink-2);
+      }
+
+      .fade-up {
+        animation: fade-up 0.5s ease-out both;
+      }
+
+      @keyframes fade-up {
+        from {
+          opacity: 0;
+          transform: translateY(8px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+    </style>
+  </head>
+  <body class="dark min-h-screen text-ink font-display">
+    <main class="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+      <header class="mb-6 fade-up">
+        <p class="font-mono text-xs uppercase tracking-[0.22em] text-zinc-300/80">streambox matrix router</p>
+        <h1 class="mt-2 text-3xl font-bold sm:text-4xl">RTMP Control Surface</h1>
+        <p class="mt-2 text-sm discord-subtle">Route each ingest to one or more outputs from a fast switch matrix.</p>
+      </header>
+
+      <section class="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4" id="statusCards"></section>
+
+      <div class="grid gap-6 lg:grid-cols-3">
+        <section class="panel rounded-2xl border border-white/10 p-4 shadow-neon lg:col-span-2 fade-up">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <h2 class="text-xl font-semibold">Control Panel</h2>
+            <div class="flex gap-2">
+              <button id="startRoutingBtn" class="btn btn-success">Start Routing</button>
+              <button id="stopRoutingBtn" class="btn btn-danger">Stop Routing</button>
+            </div>
+          </div>
+          <p class="mt-3 text-xs discord-subtle">Use "Switch Here" to move all enabled outputs to an input instantly. Use checkboxes to map input-to-output routes manually.</p>
+
+          <div id="routeMatrix" class="mt-4 space-y-3"></div>
+
+          <div class="mt-4 rounded-xl border border-white/10 bg-black/20 p-3">
+            <p class="text-xs uppercase tracking-widest discord-subtle">OBS Ingest Server</p>
+            <p class="mt-1 font-mono text-sm" id="obsServer"></p>
+          </div>
+        </section>
+
+        <section class="panel rounded-2xl border border-white/10 p-4 fade-up">
+          <h2 class="text-xl font-semibold">Input Management</h2>
+          <form id="inputForm" class="mt-4 space-y-3">
+            <input id="inputName" required placeholder="Input Name (Streamer_A)" class="ui-input" />
+            <input id="inputKey" required placeholder="Custom stream key" class="ui-input font-mono" />
+            <button class="btn btn-primary w-full">Add Input</button>
+          </form>
+          <div class="mt-4 space-y-3" id="inputList"></div>
+        </section>
+      </div>
+
+      <section class="panel mt-6 rounded-2xl border border-white/10 p-4 fade-up">
+        <div class="flex items-center justify-between">
+          <h2 class="text-xl font-semibold">Output Management</h2>
+        </div>
+
+        <form id="outputForm" class="mt-4 grid gap-3 md:grid-cols-4">
+          <input id="outputName" required placeholder="Output Name" class="ui-input" />
+          <input id="outputUrl" required placeholder="rtmp://live.twitch.tv/app" class="ui-input font-mono md:col-span-2" />
+          <input id="outputKey" required placeholder="Stream Key" class="ui-input font-mono" />
+          <button class="btn btn-primary md:col-span-4">Add Output</button>
+        </form>
+
+        <div class="mt-4 overflow-x-auto">
+          <table class="w-full text-left text-sm">
+            <thead class="text-slate-300">
+              <tr class="border-b border-slate-700">
+                <th class="py-2">Name</th>
+                <th class="py-2">Target</th>
+                <th class="py-2">Enabled</th>
+                <th class="py-2">Worker</th>
+                <th class="py-2">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="outputRows"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <p id="flash" class="mt-4 text-sm text-cyan-200"></p>
+    </main>
+
+    <script>
+      const api = {
+        state: () => fetch("/api/state").then((r) => r.json()),
+        addInput: (payload) =>
+          fetch("/api/inputs", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          }).then(handleApiResponse),
+        deleteInput: (id) => fetch(`/api/inputs/${id}`, { method: "DELETE" }).then(handleApiResponse),
+        switchInput: (input_id) =>
+          fetch("/api/control/select-input", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ input_id }),
+          }).then(handleApiResponse),
+        setInputRoute: (payload) =>
+          fetch("/api/control/routes", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          }).then(handleApiResponse),
+        startRouting: () => fetch("/api/control/start", { method: "POST" }).then(handleApiResponse),
+        stopRouting: () => fetch("/api/control/stop", { method: "POST" }).then(handleApiResponse),
+        addOutput: (payload) =>
+          fetch("/api/outputs", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          }).then(handleApiResponse),
+        updateOutput: (id, payload) =>
+          fetch(`/api/outputs/${id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          }).then(handleApiResponse),
+        deleteOutput: (id) => fetch(`/api/outputs/${id}`, { method: "DELETE" }).then(handleApiResponse),
+      };
+
+      let view = null;
+
+      function handleApiResponse(response) {
+        if (!response.ok) {
+          return response.json().then((x) => {
+            throw new Error(x.detail || "Request failed");
+          });
+        }
+        return response.json();
+      }
+
+      function flash(message, isError = false) {
+        const el = document.getElementById("flash");
+        el.textContent = message;
+        el.className = `mt-4 text-sm ${isError ? "text-rose-300" : "text-cyan-200"}`;
+      }
+
+      function statusBadge(text, active) {
+        return `<span class="inline-flex rounded-full px-2 py-1 text-xs font-semibold ${active ? "bg-emerald-500/20 text-emerald-300" : "bg-slate-700/70 text-slate-300"}">${text}</span>`;
+      }
+
+      function ensureStatusCards() {
+        const holder = document.getElementById("statusCards");
+        if (holder.children.length) {
+          return;
+        }
+
+        const skeleton = [
+          { key: "routing", label: "Routing" },
+          { key: "active", label: "Active Input" },
+          { key: "inputs", label: "Inputs" },
+          { key: "routes", label: "Routes" },
+        ];
+
+        holder.innerHTML = skeleton
+          .map(
+            (item) =>
+              `<article class="status-card rounded-xl p-4"><p class="text-xs uppercase tracking-wider text-slate-400">${item.label}</p><p data-status-value="${item.key}" class="status-number mt-1 font-bold">-</p><div data-status-badge="${item.key}" class="mt-2"></div></article>`
+          )
+          .join("");
+      }
+
+      function renderStatusCards(state, runtime) {
+        ensureStatusCards();
+        const activeInput = state.inputs.find((x) => x.id === state.active_input_id);
+        const routedOutputs = Object.values(state.input_output_routes || {}).reduce((acc, ids) => acc + ids.length, 0);
+        const cards = [
+          { label: "Routing", value: runtime.routing_enabled ? "Running" : "Stopped", active: runtime.routing_enabled },
+          { label: "Active Input", value: activeInput ? activeInput.name : "None", active: Boolean(activeInput) },
+          { label: "Inputs", value: String(state.inputs.length), active: state.inputs.length > 0 },
+          { label: "Routes", value: String(routedOutputs), active: routedOutputs > 0 },
+        ];
+
+        const keys = ["routing", "active", "inputs", "routes"];
+        cards.forEach((card, index) => {
+          const key = keys[index];
+          const valueNode = document.querySelector(`[data-status-value='${key}']`);
+          const badgeNode = document.querySelector(`[data-status-badge='${key}']`);
+          if (valueNode) {
+            valueNode.textContent = card.value;
+          }
+          if (badgeNode) {
+            badgeNode.innerHTML = statusBadge(card.active ? "active" : "idle", card.active);
+          }
+        });
+      }
+
+      function routeAssignmentsCount(state, inputId) {
+        return (state.input_output_routes?.[inputId] || []).length;
+      }
+
+      function formatTelemetry(status) {
+        if (!status || !status.online) {
+          return status?.reason || "No active stream";
+        }
+
+        const parts = [];
+        if (status.bitrate_kbps) {
+          parts.push(`${status.bitrate_kbps} kbps`);
+        }
+        if (status.resolution) {
+          parts.push(status.resolution);
+        }
+        if (status.fps) {
+          parts.push(`${status.fps} fps`);
+        }
+        if (status.codec) {
+          parts.push(status.codec);
+        }
+        return parts.length ? parts.join(" • ") : "Live stream detected";
+      }
+
+      function renderControlPanelMatrix(state, runtime) {
+        const matrix = document.getElementById("routeMatrix");
+
+        if (!state.inputs.length) {
+          matrix.innerHTML = "<p class='text-sm text-slate-400'>No inputs configured yet.</p>";
+          return;
+        }
+
+        matrix.innerHTML = state.inputs
+          .map((input) => {
+            const assigned = new Set(state.input_output_routes?.[input.id] || []);
+            const assignedCount = routeAssignmentsCount(state, input.id);
+            const isActive = input.id === state.active_input_id;
+            const inputStatus = runtime.input_status?.[input.id] || { online: false, reason: "No active stream" };
+            const liveBadge = inputStatus.online
+              ? '<span class="inline-flex rounded-full px-2 py-1 text-xs font-semibold bg-emerald-500/20 text-emerald-300">live</span>'
+              : '<span class="inline-flex rounded-full px-2 py-1 text-xs font-semibold bg-rose-500/20 text-rose-300">offline</span>';
+
+            const outputs = state.outputs
+              .map((output) => {
+                const checked = assigned.has(output.id);
+                return `<label class="chip inline-flex items-center gap-2 px-2 py-1 text-xs ${output.enabled ? "" : "opacity-50"}"><input type="checkbox" data-route-toggle="1" data-input-id="${input.id}" data-output-id="${output.id}" ${checked ? "checked" : ""} ${output.enabled ? "" : "disabled"} class="h-4 w-4 rounded border-slate-500 bg-slate-900" /><span>${output.name}</span></label>`;
+              })
+              .join("");
+
+            const outputsBlock = state.outputs.length
+              ? outputs
+              : '<p class="text-xs text-slate-500">Add outputs to map this input.</p>';
+
+            return `<article class="rounded-xl border border-slate-700/80 bg-slate-900/40 p-3"><div class="flex flex-wrap items-center justify-between gap-2"><div class="flex items-center gap-2"><p class="text-sm font-semibold">${input.name}</p>${statusBadge(isActive ? "active" : "standby", isActive)}</div><div class="flex items-center gap-2"><button data-switch-input="${input.id}" class="btn ${isActive ? "btn-ghost" : "btn-primary"}">Switch Here</button><p class="text-xs text-slate-400">${assignedCount} output(s)</p></div></div><div class="mt-2 flex items-center gap-2">${liveBadge}<p class="text-xs text-slate-300">${formatTelemetry(inputStatus)}</p></div><div class="mt-3 flex flex-wrap gap-2">${outputsBlock}</div></article>`;
+          })
+          .join("");
+      }
+
+      function renderInputs(state, obsServer) {
+        const list = document.getElementById("inputList");
+        list.innerHTML = state.inputs
+          .map(
+            (input) =>
+                `<article class="rounded-xl border border-slate-700 bg-slate-900/50 p-3"><div class="flex items-center justify-between gap-2"><h3 class="font-semibold">${input.name}</h3>${statusBadge(input.id === state.active_input_id ? "active" : "standby", input.id === state.active_input_id)}</div><p class="mt-2 text-xs text-slate-400">OBS Server:</p><p class="font-mono text-xs">${obsServer}</p><p class="mt-1 text-xs text-slate-400">Stream Key:</p><p class="font-mono text-xs">${input.stream_key}</p><button data-input-delete="${input.id}" class="btn btn-danger mt-3">Remove</button></article>`
+          )
+          .join("");
+
+        document.getElementById("obsServer").textContent = obsServer;
+      }
+
+      function renderOutputs(state, runtime) {
+        const rows = document.getElementById("outputRows");
+        if (!state.outputs.length) {
+          rows.innerHTML = "<tr><td class='py-3 text-slate-400' colspan='5'>No outputs configured yet.</td></tr>";
+          return;
+        }
+
+        rows.innerHTML = state.outputs
+          .map((output) => {
+            const worker = runtime.output_workers[output.id];
+            return `<tr class="border-b border-slate-800"><td class="py-2">${output.name}</td><td class="py-2 font-mono text-xs">${output.ingest_url}/***</td><td class="py-2"><label class="inline-flex cursor-pointer items-center gap-2"><input type="checkbox" data-output-toggle="${output.id}" ${output.enabled ? "checked" : ""} class="h-4 w-4 rounded border-slate-500 bg-slate-900" /><span>${output.enabled ? "On" : "Off"}</span></label></td><td class="py-2">${statusBadge(worker ? "running" : "stopped", worker)}</td><td class="py-2"><button data-output-delete="${output.id}" class="btn btn-danger">Delete</button></td></tr>`;
+          })
+          .join("");
+      }
+
+      async function refresh() {
+        view = await api.state();
+        const { state, runtime, obs_server } = view;
+        renderStatusCards(state, runtime);
+        renderControlPanelMatrix(state, runtime);
+        renderInputs(state, obs_server);
+        renderOutputs(state, runtime);
+      }
+
+      async function withRefresh(action, successMessage) {
+        try {
+          await action();
+          await refresh();
+          flash(successMessage || "Updated");
+        } catch (error) {
+          flash(error.message, true);
+        }
+      }
+
+      document.getElementById("startRoutingBtn").addEventListener("click", () => withRefresh(() => api.startRouting(), "Routing started"));
+      document.getElementById("stopRoutingBtn").addEventListener("click", () => withRefresh(() => api.stopRouting(), "Routing stopped"));
+
+      document.getElementById("inputForm").addEventListener("submit", (event) => {
+        event.preventDefault();
+        const payload = {
+          name: document.getElementById("inputName").value.trim(),
+          stream_key: document.getElementById("inputKey").value.trim(),
+        };
+        withRefresh(() => api.addInput(payload), "Input added").then(() => {
+          event.target.reset();
+        });
+      });
+
+      document.getElementById("outputForm").addEventListener("submit", (event) => {
+        event.preventDefault();
+        const payload = {
+          name: document.getElementById("outputName").value.trim(),
+          ingest_url: document.getElementById("outputUrl").value.trim(),
+          stream_key: document.getElementById("outputKey").value.trim(),
+          enabled: true,
+        };
+        withRefresh(() => api.addOutput(payload), "Output added").then(() => {
+          event.target.reset();
+        });
+      });
+
+      document.addEventListener("click", (event) => {
+        const inputDelete = event.target.getAttribute("data-input-delete");
+        const outputDelete = event.target.getAttribute("data-output-delete");
+        const switchInput = event.target.getAttribute("data-switch-input");
+
+        if (inputDelete) {
+          withRefresh(() => api.deleteInput(inputDelete), "Input removed");
+        }
+
+        if (outputDelete) {
+          withRefresh(() => api.deleteOutput(outputDelete), "Output removed");
+        }
+
+        if (switchInput) {
+          withRefresh(() => api.switchInput(switchInput), "Switched enabled outputs to selected ingest");
+        }
+      });
+
+      document.addEventListener("change", (event) => {
+        const outputToggle = event.target.getAttribute("data-output-toggle");
+        const routeToggle = event.target.getAttribute("data-route-toggle");
+        if (outputToggle) {
+          const enabled = event.target.checked;
+          withRefresh(() => api.updateOutput(outputToggle, { enabled }), `Output ${enabled ? "enabled" : "disabled"}`);
+        }
+
+        if (routeToggle) {
+          const inputId = event.target.getAttribute("data-input-id");
+          const outputId = event.target.getAttribute("data-output-id");
+          const selected = event.target.checked;
+          withRefresh(() => api.setInputRoute({ input_id: inputId, output_id: outputId, selected }), "Route mapping updated");
+        }
+      });
+
+      refresh().catch((error) => flash(error.message, true));
+      setInterval(() => refresh().catch(() => {}), 4000);
+    </script>
+  </body>
+</html>

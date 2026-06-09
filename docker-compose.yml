@@ -1,0 +1,28 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: streambox-app
+    environment:
+      STATE_PATH: /data/state.json
+      RTMP_HOST: rtmp
+      RTMP_PORT: 1935
+      PUBLIC_HOST: ${PUBLIC_HOST:-localhost}
+    volumes:
+      - ./data:/data
+    ports:
+      - "8080:8080"
+    depends_on:
+      - rtmp
+    restart: unless-stopped
+
+  rtmp:
+    image: tiangolo/nginx-rtmp:latest
+    container_name: streambox-rtmp
+    ports:
+      - "1935:1935"
+      - "8081:80"
+    volumes:
+      - ./rtmp/nginx.conf:/etc/nginx/nginx.conf:ro
+    restart: unless-stopped
