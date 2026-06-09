@@ -203,12 +203,13 @@
         <p class="mt-2 text-sm discord-subtle">Route each ingest to one or more outputs from a fast switch matrix.</p>
       </header>
 
-      <section class="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4" id="statusCards"></section>
-
       <div class="grid gap-6 lg:grid-cols-3">
         <section class="panel rounded-2xl border border-white/10 p-4 shadow-neon lg:col-span-2 fade-up">
           <div class="flex flex-wrap items-center justify-between gap-3">
-            <h2 class="text-xl font-semibold">Control Panel</h2>
+            <div class="flex items-center gap-3">
+              <h2 class="text-xl font-semibold">Control Panel</h2>
+              <div id="routingPill"></div>
+            </div>
             <div class="flex gap-2">
               <button id="startRoutingBtn" class="btn btn-success">Start Routing</button>
               <button id="stopRoutingBtn" class="btn btn-danger">Stop Routing</button>
@@ -221,6 +222,7 @@
           <div class="mt-4 rounded-xl border border-white/10 bg-black/20 p-3">
             <p class="text-xs uppercase tracking-widest discord-subtle">OBS Ingest Server</p>
             <p class="mt-1 font-mono text-sm" id="obsServer"></p>
+            <p class="mt-1 font-mono text-xs discord-subtle" id="obsServerHint"></p>
           </div>
         </section>
 
@@ -326,50 +328,14 @@
         return `<span class="inline-flex rounded-full px-2 py-1 text-xs font-semibold ${active ? "bg-emerald-500/20 text-emerald-300" : "bg-slate-700/70 text-slate-300"}">${text}</span>`;
       }
 
-      function ensureStatusCards() {
-        const holder = document.getElementById("statusCards");
-        if (holder.children.length) {
-          return;
+      function renderRoutingPill(routing_enabled) {
+        const pill = document.getElementById("routingPill");
+        if (!pill) return;
+        if (routing_enabled) {
+          pill.innerHTML = '<span class="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/20 px-3 py-1 text-xs font-semibold text-emerald-300"><span class="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse inline-block"></span>LIVE</span>';
+        } else {
+          pill.innerHTML = '<span class="inline-flex items-center gap-1.5 rounded-full bg-zinc-800 px-3 py-1 text-xs font-semibold text-zinc-400"><span class="h-1.5 w-1.5 rounded-full bg-zinc-500 inline-block"></span>OFF</span>';
         }
-
-        const skeleton = [
-          { key: "routing", label: "Routing" },
-          { key: "active", label: "Active Input" },
-          { key: "inputs", label: "Inputs" },
-          { key: "routes", label: "Routes" },
-        ];
-
-        holder.innerHTML = skeleton
-          .map(
-            (item) =>
-              `<article class="status-card rounded-xl p-4"><p class="text-xs uppercase tracking-wider text-slate-400">${item.label}</p><p data-status-value="${item.key}" class="status-number mt-1 font-bold">-</p><div data-status-badge="${item.key}" class="mt-2"></div></article>`
-          )
-          .join("");
-      }
-
-      function renderStatusCards(state, runtime) {
-        ensureStatusCards();
-        const activeInput = state.inputs.find((x) => x.id === state.active_input_id);
-        const routedOutputs = Object.values(state.input_output_routes || {}).reduce((acc, ids) => acc + ids.length, 0);
-        const cards = [
-          { label: "Routing", value: runtime.routing_enabled ? "Running" : "Stopped", active: runtime.routing_enabled },
-          { label: "Active Input", value: activeInput ? activeInput.name : "None", active: Boolean(activeInput) },
-          { label: "Inputs", value: String(state.inputs.length), active: state.inputs.length > 0 },
-          { label: "Routes", value: String(routedOutputs), active: routedOutputs > 0 },
-        ];
-
-        const keys = ["routing", "active", "inputs", "routes"];
-        cards.forEach((card, index) => {
-          const key = keys[index];
-          const valueNode = document.querySelector(`[data-status-value='${key}']`);
-          const badgeNode = document.querySelector(`[data-status-badge='${key}']`);
-          if (valueNode) {
-            valueNode.textContent = card.value;
-          }
-          if (badgeNode) {
-            badgeNode.innerHTML = statusBadge(card.active ? "active" : "idle", card.active);
-          }
-        });
       }
 
       function routeAssignmentsCount(state, inputId) {
@@ -439,8 +405,6 @@
                 `<article class="rounded-xl border border-slate-700 bg-slate-900/50 p-3"><div class="flex items-center justify-between gap-2"><h3 class="font-semibold">${input.name}</h3>${statusBadge(input.id === state.active_input_id ? "active" : "standby", input.id === state.active_input_id)}</div><p class="mt-2 text-xs text-slate-400">OBS Server:</p><p class="font-mono text-xs">${obsServer}</p><p class="mt-1 text-xs text-slate-400">Stream Key:</p><p class="font-mono text-xs">${input.stream_key}</p><button data-input-delete="${input.id}" class="btn btn-danger mt-3">Remove</button></article>`
           )
           .join("");
-
-        document.getElementById("obsServer").textContent = obsServer;
       }
 
       function renderOutputs(state, runtime) {
@@ -461,10 +425,15 @@
       async function refresh() {
         view = await api.state();
         const { state, runtime, obs_server } = view;
-        renderStatusCards(state, runtime);
+        renderRoutingPill(runtime.routing_enabled);
         renderControlPanelMatrix(state, runtime);
         renderInputs(state, obs_server);
         renderOutputs(state, runtime);
+
+        const serverEl = document.getElementById("obsServer");
+        const hintEl = document.getElementById("obsServerHint");
+        if (serverEl) serverEl.textContent = obs_server;
+        if (hintEl) hintEl.textContent = `Point OBS to: ${obs_server} — each input has its own stream key`;
       }
 
       async function withRefresh(action, successMessage) {

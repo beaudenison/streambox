@@ -55,9 +55,43 @@ prepare_project() {
   cd "${target}"
 }
 
+detect_host_ip() {
+  local ip
+  # Try outbound-route IP first (most reliable on a server)
+  ip=$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") {print $(i+1); exit}}')
+
+  # Fallback: first non-loopback IPv4 via hostname -I
+  if [[ -z "${ip}" ]]; then
+    ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+  fi
+
+  # Last resort: localhost
+  echo "${ip:-localhost}"
+}
+
 start_stack() {
   echo "[streambox] Building and starting containers..."
   docker compose up -d --build
+}
+
+print_summary() {
+  local host="${1}"
+  local dashboard="http://${host}:8080"
+  local rtmp_ingest="rtmp://${host}/ingest"
+
+  echo
+  echo "╔══════════════════════════════════════════════╗"
+  echo "║           streambox is running!              ║"
+  echo "╠══════════════════════════════════════════════╣"
+  printf "║  Dashboard:   %-32s║\n" "${dashboard}"
+  printf "║  RTMP ingest: %-32s║\n" "${rtmp_ingest}"
+  printf "║  OBS server:  %-32s║\n" "${rtmp_ingest}"
+  echo "╚══════════════════════════════════════════════╝"
+  echo
+  echo "  Click or copy the Dashboard link above to open the control panel."
+  echo "  In OBS: Server = ${rtmp_ingest}"
+  echo "          Stream Key = <your custom key>"
+  echo
 }
 
 main() {
@@ -69,13 +103,13 @@ main() {
   install_docker_if_missing
   install_compose_if_missing
   prepare_project
-  start_stack
 
-  echo
-  echo "[streambox] Ready."
-  echo "Dashboard: http://localhost:8080"
-  echo "RTMP ingest: rtmp://localhost/ingest"
-  echo "RTMP test endpoint: http://localhost:8081"
+  local host
+  host=$(detect_host_ip)
+  export PUBLIC_HOST="${host}"
+
+  start_stack
+  print_summary "${host}"
 }
 
 main "$@"
