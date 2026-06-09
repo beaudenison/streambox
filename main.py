@@ -6,6 +6,7 @@ import subprocess
 import time
 import urllib.parse
 import urllib.request
+import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -272,6 +273,61 @@ def probe_input_stream_hls(input_item: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def fetch_ingest_stat_streams() -> Dict[str, Dict[str, Any]]:
+    stat_url = f"http://{RTMP_HOST}:{RTMP_HTTP_PORT}/stat"
+    try:
+        with urllib.request.urlopen(stat_url, timeout=2.0) as resp:
+            if resp.status != 200:
+                return {}
+            payload = resp.read()
+    except Exception:
+        return {}
+
+    try:
+        root = ET.fromstring(payload)
+    except ET.ParseError:
+        return {}
+
+    def _text(node: Optional[ET.Element], path: str) -> Optional[str]:
+        if node is None:
+            return None
+        value = node.findtext(path)
+        if value is None:
+            return None
+        value = value.strip()
+        return value or None
+
+    out: Dict[str, Dict[str, Any]] = {}
+    for app in root.findall("./server/application"):
+        app_name = (_text(app, "name") or "")
+        if app_name != INGEST_APP:
+            continue
+
+        live = app.find("live")
+        if live is None:
+            continue
+
+        for stream in live.findall("stream"):
+            stream_name = _text(stream, "name")
+            if not stream_name:
+                continue
+
+            width = _text(stream, "meta/video/width")
+            height = _text(stream, "meta/video/height")
+            resolution = f"{width}x{height}" if width and height else None
+
+            out[stream_name] = {
+                "online": True,
+                "reason": "Live",
+                "codec": (_text(stream, "meta/video/codec") or _text(stream, "meta/audio/codec") or "").lower() or None,
+                "fps": parse_frame_rate(_text(stream, "meta/video/frame_rate") or ""),
+                "resolution": resolution,
+                "bitrate_kbps": parse_bitrate_kbps(_text(stream, "bw_in")),
+                "last_seen": now_iso(),
+            }
+    return out
+
+
 def preview_hls_ready(stream_key: str) -> bool:
     hls_url = input_hls_url(stream_key)
     try:
@@ -300,17 +356,17 @@ async def collect_input_status(state: Dict[str, Any]) -> Dict[str, Dict[str, Any
         runtime.input_status_cache_at = now_mono
         return {}
 
-    probe_tasks = [asyncio.to_thread(probe_input_stream_hls, item) for item in inputs]
+    stat_streams = await asyncio.to_thread(fetch_ingest_stat_streams)
     preview_tasks = [asyncio.to_thread(preview_hls_ready, item["stream_key"]) for item in inputs]
-    results = await asyncio.gather(*probe_tasks)
     preview_results = await asyncio.gather(*preview_tasks)
 
     merged: Dict[str, Dict[str, Any]] = {}
     previous = runtime.input_status_cache
-    hold_seconds = 20.0
-    for input_item, status, preview_ready in zip(inputs, results, preview_results):
+    hold_seconds = 25.0
+    for input_item, preview_ready in zip(inputs, preview_results):
         input_id = input_item["id"]
         existing = previous.get(input_id, {})
+        status = stat_streams.get(input_item["stream_key"], {"online": False, "reason": "No active stream"})
 
         if status.get("online"):
             runtime.input_last_online_at[input_id] = now_mono
