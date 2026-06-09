@@ -4,6 +4,8 @@ import json
 import os
 import subprocess
 import time
+import urllib.parse
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -19,6 +21,7 @@ from pydantic import BaseModel, Field
 STATE_PATH = Path(os.getenv("STATE_PATH", "/data/state.json"))
 RTMP_HOST = os.getenv("RTMP_HOST", "rtmp")
 RTMP_PORT = int(os.getenv("RTMP_PORT", "1935"))
+RTMP_HTTP_PORT = int(os.getenv("RTMP_HTTP_PORT", "80"))
 PUBLIC_HOST = os.getenv("PUBLIC_HOST", "localhost")
 INGEST_APP = "ingest"
 MATRIX_APP = "matrix"
@@ -60,6 +63,7 @@ class Runtime:
         self.lock = asyncio.Lock()
         self.input_status_cache: Dict[str, Dict[str, Any]] = {}
         self.input_status_cache_at: float = 0.0
+        self.input_last_online_at: Dict[str, float] = {}
 
 
 runtime = Runtime()
@@ -173,60 +177,91 @@ def parse_frame_rate(raw: str) -> Optional[float]:
 def parse_bitrate_kbps(value: Any) -> Optional[int]:
     if value is None:
         return None
-
     try:
         return int(int(value) / 1000)
     except (TypeError, ValueError):
         return None
 
 
-def probe_input_stream(input_item: Dict[str, Any]) -> Dict[str, Any]:
-    source = input_source_url(input_item["stream_key"])
+def input_hls_url(stream_key: str) -> str:
+    encoded = urllib.parse.quote(stream_key, safe="")
+    return f"http://{RTMP_HOST}:{RTMP_HTTP_PORT}/hls/{encoded}.m3u8"
+
+
+def probe_input_stream_hls(input_item: Dict[str, Any]) -> Dict[str, Any]:
+    hls_url = input_hls_url(input_item["stream_key"])
+
+    try:
+        with urllib.request.urlopen(hls_url, timeout=2.0) as resp:
+            if resp.status != 200:
+                return {"online": False, "reason": "No active stream"}
+    except Exception:
+        return {"online": False, "reason": "No active stream"}
+
     cmd = [
         "ffprobe",
         "-v",
         "error",
         "-analyzeduration",
-        "1000000",
+        "3000000",
         "-probesize",
-        "32768",
+        "300000",
         "-show_entries",
         "stream=codec_type,codec_name,width,height,avg_frame_rate,bit_rate",
         "-show_entries",
         "format=bit_rate",
         "-of",
         "json",
-        source,
+        hls_url,
     ]
 
     try:
-        completed = subprocess.run(cmd, capture_output=True, text=True, timeout=2.0, check=False)
+        completed = subprocess.run(cmd, capture_output=True, text=True, timeout=4.0, check=False)
     except subprocess.TimeoutExpired:
         return {
-            "online": False,
-            "reason": "Probe timeout",
+            "online": True,
+            "reason": "Live (telemetry pending)",
+            "last_seen": now_iso(),
+            "codec": None,
+            "fps": None,
+            "resolution": None,
+            "bitrate_kbps": None,
         }
 
     if completed.returncode != 0:
-        reason = completed.stderr.strip() or "No stream detected"
         return {
-            "online": False,
-            "reason": reason,
+            "online": True,
+            "reason": "Live (telemetry unavailable)",
+            "last_seen": now_iso(),
+            "codec": None,
+            "fps": None,
+            "resolution": None,
+            "bitrate_kbps": None,
         }
 
     try:
         payload = json.loads(completed.stdout or "{}")
     except json.JSONDecodeError:
         return {
-            "online": False,
-            "reason": "Probe parse error",
+            "online": True,
+            "reason": "Live (telemetry parse error)",
+            "last_seen": now_iso(),
+            "codec": None,
+            "fps": None,
+            "resolution": None,
+            "bitrate_kbps": None,
         }
 
     streams: List[Dict[str, Any]] = payload.get("streams", [])
     if not streams:
         return {
-            "online": False,
-            "reason": "No active media stream",
+            "online": True,
+            "reason": "Live",
+            "last_seen": now_iso(),
+            "codec": None,
+            "fps": None,
+            "resolution": None,
+            "bitrate_kbps": None,
         }
 
     video_stream = next((x for x in streams if x.get("codec_type") == "video"), None)
@@ -253,7 +288,7 @@ def probe_input_stream(input_item: Dict[str, Any]) -> Dict[str, Any]:
 
 async def collect_input_status(state: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
     now_mono = time.monotonic()
-    if now_mono - runtime.input_status_cache_at < 2.5:
+    if now_mono - runtime.input_status_cache_at < 3.0:
         return runtime.input_status_cache
 
     inputs = state.get("inputs", [])
@@ -262,16 +297,38 @@ async def collect_input_status(state: Dict[str, Any]) -> Dict[str, Dict[str, Any
         runtime.input_status_cache_at = now_mono
         return {}
 
-    tasks = [asyncio.to_thread(probe_input_stream, item) for item in inputs]
+    tasks = [asyncio.to_thread(probe_input_stream_hls, item) for item in inputs]
     results = await asyncio.gather(*tasks)
 
     merged: Dict[str, Dict[str, Any]] = {}
     previous = runtime.input_status_cache
+    hold_seconds = 15.0
     for input_item, status in zip(inputs, results):
+        input_id = input_item["id"]
         existing = previous.get(input_item["id"], {})
-        if not status.get("online") and existing.get("last_seen"):
+        if status.get("online"):
+            runtime.input_last_online_at[input_id] = now_mono
+            merged[input_id] = status
+            continue
+
+        last_online = runtime.input_last_online_at.get(input_id)
+        if last_online is not None and (now_mono - last_online) < hold_seconds:
+            held = {
+                "online": True,
+                "degraded": True,
+                "reason": "Intermittent signal; holding last telemetry",
+                "last_seen": existing.get("last_seen"),
+                "bitrate_kbps": existing.get("bitrate_kbps"),
+                "codec": existing.get("codec"),
+                "fps": existing.get("fps"),
+                "resolution": existing.get("resolution"),
+            }
+            merged[input_id] = held
+            continue
+
+        if existing.get("last_seen"):
             status["last_seen"] = existing.get("last_seen")
-        merged[input_item["id"]] = status
+        merged[input_id] = status
 
     runtime.input_status_cache = merged
     runtime.input_status_cache_at = now_mono

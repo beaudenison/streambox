@@ -8,6 +8,7 @@ services:
       STATE_PATH: /data/state.json
       RTMP_HOST: rtmp
       RTMP_PORT: 1935
+      RTMP_HTTP_PORT: 80
       PUBLIC_HOST: ${PUBLIC_HOST:-localhost}
     volumes:
       - ./data:/data

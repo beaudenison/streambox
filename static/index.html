@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>streambox control</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.15/dist/hls.min.js"></script>
     <script>
       tailwind.config = {
         darkMode: "class",
@@ -266,6 +267,21 @@
         </div>
       </section>
 
+      <section class="panel mt-6 rounded-2xl border border-white/10 p-4 fade-up">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <h2 class="text-xl font-semibold">Live Preview</h2>
+          <div class="flex items-center gap-2">
+            <label class="text-xs discord-subtle">Input</label>
+            <select id="previewInputSelect" class="ui-input py-1.5 px-2 text-xs"></select>
+          </div>
+        </div>
+        <p class="mt-2 text-xs discord-subtle">Preview uses HLS and may be 2-8 seconds behind live ingest.</p>
+        <div class="mt-3 overflow-hidden rounded-xl border border-white/10 bg-black/40">
+          <video id="previewVideo" class="w-full bg-black" controls muted playsinline></video>
+        </div>
+        <p id="previewHint" class="mt-2 text-xs discord-subtle"></p>
+      </section>
+
       <p id="flash" class="mt-4 text-sm text-cyan-200"></p>
     </main>
 
@@ -309,6 +325,8 @@
       };
 
       let view = null;
+      let hlsPlayer = null;
+      let lastPreviewInputId = null;
 
       function handleApiResponse(response) {
         if (!response.ok) {
@@ -408,6 +426,69 @@
           .join("");
       }
 
+      function hlsPreviewUrl(input) {
+        const key = encodeURIComponent(input.stream_key);
+        return `http://${location.hostname}:8081/hls/${key}.m3u8`;
+      }
+
+      function destroyPreviewPlayer() {
+        if (hlsPlayer) {
+          hlsPlayer.destroy();
+          hlsPlayer = null;
+        }
+      }
+
+      function renderPreview(state) {
+        const select = document.getElementById("previewInputSelect");
+        const hint = document.getElementById("previewHint");
+        const video = document.getElementById("previewVideo");
+
+        if (!state.inputs.length) {
+          select.innerHTML = "";
+          destroyPreviewPlayer();
+          video.removeAttribute("src");
+          video.load();
+          hint.textContent = "Add an input and start streaming from OBS to see preview.";
+          return;
+        }
+
+        select.innerHTML = state.inputs
+          .map((input) => `<option value="${input.id}">${input.name}</option>`)
+          .join("");
+
+        const desiredInputId = select.value || state.active_input_id || state.inputs[0].id;
+        select.value = desiredInputId;
+
+        const selected = state.inputs.find((x) => x.id === desiredInputId) || state.inputs[0];
+        if (!selected) {
+          hint.textContent = "No preview input selected.";
+          return;
+        }
+
+        if (lastPreviewInputId === selected.id) {
+          hint.textContent = `Preview source: ${selected.name}`;
+          return;
+        }
+
+        const url = hlsPreviewUrl(selected);
+        hint.textContent = `Preview source: ${selected.name} (${url})`;
+
+        destroyPreviewPlayer();
+        if (window.Hls && window.Hls.isSupported()) {
+          hlsPlayer = new window.Hls({
+            lowLatencyMode: false,
+            liveSyncDurationCount: 3,
+          });
+          hlsPlayer.loadSource(url);
+          hlsPlayer.attachMedia(video);
+        } else {
+          video.src = url;
+        }
+
+        video.play().catch(() => {});
+        lastPreviewInputId = selected.id;
+      }
+
       function renderOutputs(state, runtime) {
         const rows = document.getElementById("outputRows");
         if (!state.outputs.length) {
@@ -430,6 +511,7 @@
         renderControlPanelMatrix(state, runtime);
         renderInputs(state, obs_server);
         renderOutputs(state, runtime);
+        renderPreview(state);
 
         const serverEl = document.getElementById("obsServer");
         const hintEl = document.getElementById("obsServerHint");
@@ -472,6 +554,13 @@
         withRefresh(() => api.addOutput(payload), "Output added").then(() => {
           event.target.reset();
         });
+      });
+
+      document.getElementById("previewInputSelect").addEventListener("change", () => {
+        lastPreviewInputId = null;
+        if (view?.state) {
+          renderPreview(view.state);
+        }
       });
 
       document.addEventListener("click", (event) => {
