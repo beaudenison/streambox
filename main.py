@@ -616,4 +616,9 @@ async def index() -> FileResponse:
     return FileResponse("static/index.html")
 
 
+@app.get("/dock")
+async def dock() -> FileResponse:
+    return FileResponse("static/dock.html")
+
+
 app.mount("/static", StaticFiles(directory="static"), name="static")

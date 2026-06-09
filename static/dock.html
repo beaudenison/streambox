@@ -1,0 +1,425 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>streambox dock</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg: #0a0a0a;
+        --surface: #161616;
+        --ink-1: #f5f5f5;
+        --ink-2: #9ca3af;
+        --line: rgba(255,255,255,0.08);
+      }
+
+      * { box-sizing: border-box; }
+
+      html, body {
+        margin: 0;
+        padding: 0;
+        background: var(--bg);
+        color: var(--ink-1);
+        font-family: "Space Grotesk", sans-serif;
+        font-size: 13px;
+        min-height: 100vh;
+        overflow-x: hidden;
+      }
+
+      .dock-wrap {
+        padding: 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .dock-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding-bottom: 6px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .dock-title {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--ink-2);
+      }
+
+      .pill-live {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        border-radius: 99px;
+        background: rgba(16,185,129,0.15);
+        color: #6ee7b7;
+        padding: 2px 8px;
+        font-size: 11px;
+        font-weight: 700;
+      }
+
+      .pill-live .dot {
+        width: 6px; height: 6px;
+        border-radius: 50%;
+        background: #34d399;
+        animation: pulse 1.5s infinite;
+      }
+
+      .pill-off {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        border-radius: 99px;
+        background: rgba(255,255,255,0.06);
+        color: var(--ink-2);
+        padding: 2px 8px;
+        font-size: 11px;
+        font-weight: 700;
+      }
+
+      .pill-off .dot {
+        width: 6px; height: 6px;
+        border-radius: 50%;
+        background: #525252;
+      }
+
+      @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.4; }
+      }
+
+      .routing-btns {
+        display: flex;
+        gap: 6px;
+      }
+
+      .btn {
+        flex: 1;
+        border-radius: 8px;
+        border: 1px solid transparent;
+        padding: 6px 10px;
+        font-size: 12px;
+        font-weight: 700;
+        cursor: pointer;
+        transition: transform 0.12s ease, filter 0.15s ease;
+        font-family: inherit;
+      }
+
+      .btn:hover { transform: translateY(-1px); filter: brightness(1.1); }
+      .btn:active { transform: translateY(0); }
+
+      .btn-success {
+        color: #ecfdf5;
+        border-color: rgba(22,163,74,0.5);
+        background: linear-gradient(140deg, rgba(34,197,94,0.92), rgba(21,128,61,0.95));
+        box-shadow: 0 4px 14px rgba(22,163,74,0.28);
+      }
+
+      .btn-danger {
+        color: #fff1f2;
+        border-color: rgba(225,29,72,0.5);
+        background: linear-gradient(140deg, rgba(244,63,94,0.9), rgba(190,24,93,0.95));
+        box-shadow: 0 4px 14px rgba(225,29,72,0.28);
+      }
+
+      .btn-primary {
+        color: #eef2ff;
+        background: linear-gradient(135deg, #6366f1, #4f46e5);
+        box-shadow: 0 4px 14px rgba(79,70,229,0.3);
+      }
+
+      .btn-ghost {
+        color: #f2f3f5;
+        border-color: rgba(255,255,255,0.12);
+        background: linear-gradient(180deg, rgba(41,41,41,0.8), rgba(22,22,22,0.9));
+      }
+
+      .input-card {
+        background: rgba(22,22,22,0.9);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 8px 10px;
+      }
+
+      .input-card-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 6px;
+        margin-bottom: 6px;
+      }
+
+      .input-name {
+        font-weight: 700;
+        font-size: 13px;
+      }
+
+      .badge-active {
+        font-size: 10px;
+        font-weight: 700;
+        padding: 1px 7px;
+        border-radius: 99px;
+        background: rgba(16,185,129,0.18);
+        color: #6ee7b7;
+      }
+
+      .badge-standby {
+        font-size: 10px;
+        font-weight: 700;
+        padding: 1px 7px;
+        border-radius: 99px;
+        background: rgba(255,255,255,0.06);
+        color: var(--ink-2);
+      }
+
+      .telemetry-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-bottom: 6px;
+      }
+
+      .live-badge {
+        font-size: 10px; font-weight: 700;
+        padding: 1px 7px; border-radius: 99px;
+        background: rgba(16,185,129,0.18); color: #6ee7b7;
+      }
+
+      .offline-badge {
+        font-size: 10px; font-weight: 700;
+        padding: 1px 7px; border-radius: 99px;
+        background: rgba(244,63,94,0.15); color: #fca5a5;
+      }
+
+      .telemetry-text {
+        font-size: 11px;
+        color: var(--ink-2);
+        font-family: "IBM Plex Mono", monospace;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .output-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+      }
+
+      .output-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        border-radius: 6px;
+        border: 1px solid var(--line);
+        background: rgba(30,30,30,0.85);
+        padding: 2px 7px;
+        font-size: 11px;
+        cursor: pointer;
+        user-select: none;
+      }
+
+      .output-chip input[type="checkbox"] {
+        width: 12px; height: 12px;
+        margin: 0;
+        cursor: pointer;
+        accent-color: #6366f1;
+      }
+
+      .ingest-box {
+        background: rgba(255,255,255,0.03);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 7px 10px;
+      }
+
+      .ingest-label {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: var(--ink-2);
+        margin-bottom: 2px;
+      }
+
+      .ingest-url {
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 11px;
+        word-break: break-all;
+      }
+
+      .flash-bar {
+        font-size: 11px;
+        padding: 4px 8px;
+        border-radius: 6px;
+        margin-top: 2px;
+        display: none;
+      }
+
+      .flash-bar.show { display: block; }
+      .flash-ok { background: rgba(16,185,129,0.15); color: #6ee7b7; }
+      .flash-err { background: rgba(244,63,94,0.15); color: #fca5a5; }
+
+      .section-label {
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--ink-2);
+        margin-bottom: 4px;
+      }
+
+      .empty-hint {
+        font-size: 11px;
+        color: var(--ink-2);
+        padding: 6px 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="dock-wrap">
+      <div class="dock-header">
+        <span class="dock-title">streambox</span>
+        <div id="routingPill"></div>
+      </div>
+
+      <div class="routing-btns">
+        <button class="btn btn-success" id="startBtn">Start Routing</button>
+        <button class="btn btn-danger" id="stopBtn">Stop Routing</button>
+      </div>
+
+      <div>
+        <p class="section-label">Inputs</p>
+        <div id="inputList" style="display:flex;flex-direction:column;gap:6px;"></div>
+      </div>
+
+      <div class="ingest-box">
+        <p class="ingest-label">OBS Ingest Server</p>
+        <p class="ingest-url" id="obsServer">—</p>
+      </div>
+
+      <div id="flashBar" class="flash-bar"></div>
+    </div>
+
+    <script>
+      const api = {
+        state: () => fetch("/api/state").then(r => r.json()),
+        switchInput: id => fetch("/api/control/select-input", {
+          method: "POST", headers: {"Content-Type":"application/json"},
+          body: JSON.stringify({input_id: id})
+        }).then(handleResp),
+        setRoute: payload => fetch("/api/control/routes", {
+          method: "POST", headers: {"Content-Type":"application/json"},
+          body: JSON.stringify(payload)
+        }).then(handleResp),
+        start: () => fetch("/api/control/start", {method:"POST"}).then(handleResp),
+        stop:  () => fetch("/api/control/stop",  {method:"POST"}).then(handleResp),
+      };
+
+      function handleResp(r) {
+        if (!r.ok) return r.json().then(x => { throw new Error(x.detail || "Error"); });
+        return r.json();
+      }
+
+      function flash(msg, err = false) {
+        const el = document.getElementById("flashBar");
+        el.textContent = msg;
+        el.className = "flash-bar show " + (err ? "flash-err" : "flash-ok");
+        setTimeout(() => { el.className = "flash-bar"; }, 2500);
+      }
+
+      async function withRefresh(action, msg) {
+        try { await action(); await refresh(); flash(msg || "Updated"); }
+        catch (e) { flash(e.message, true); }
+      }
+
+      function formatTelemetry(s) {
+        if (!s || !s.online) return s?.reason || "No active stream";
+        const parts = [];
+        if (s.bitrate_kbps) parts.push(s.bitrate_kbps + " kbps");
+        if (s.resolution)   parts.push(s.resolution);
+        if (s.fps)          parts.push(s.fps + " fps");
+        if (s.codec)        parts.push(s.codec);
+        return parts.length ? parts.join(" · ") : "Live";
+      }
+
+      async function refresh() {
+        let data;
+        try { data = await api.state(); } catch { return; }
+        const { state, runtime, obs_server } = data;
+
+        // routing pill
+        const pill = document.getElementById("routingPill");
+        if (runtime.routing_enabled) {
+          pill.innerHTML = '<span class="pill-live"><span class="dot"></span>LIVE</span>';
+        } else {
+          pill.innerHTML = '<span class="pill-off"><span class="dot"></span>OFF</span>';
+        }
+
+        // obs server
+        document.getElementById("obsServer").textContent = obs_server;
+
+        // input list
+        const list = document.getElementById("inputList");
+        if (!state.inputs.length) {
+          list.innerHTML = '<p class="empty-hint">No inputs configured yet.</p>';
+          return;
+        }
+
+        list.innerHTML = state.inputs.map(input => {
+          const isActive = input.id === state.active_input_id;
+          const assigned = new Set((state.input_output_routes?.[input.id] || []));
+          const status = runtime.input_status?.[input.id] || {};
+
+          const liveBadge = status.online
+            ? '<span class="live-badge">live</span>'
+            : '<span class="offline-badge">offline</span>';
+
+          const outputChips = state.outputs.length
+            ? state.outputs.map(o => {
+                const checked = assigned.has(o.id);
+                const dis = o.enabled ? "" : "opacity:0.4;pointer-events:none;";
+                return `<label class="output-chip" style="${dis}"><input type="checkbox" data-route-input="${input.id}" data-route-output="${o.id}" ${checked ? "checked" : ""} ${o.enabled ? "" : "disabled"} />${o.name}</label>`;
+              }).join("")
+            : '<span style="font-size:11px;color:var(--ink-2)">No outputs yet</span>';
+
+          return `<div class="input-card">
+            <div class="input-card-header">
+              <span class="input-name">${input.name}</span>
+              <span class="${isActive ? "badge-active" : "badge-standby"}">${isActive ? "active" : "standby"}</span>
+            </div>
+            <div class="telemetry-row">${liveBadge}<span class="telemetry-text">${formatTelemetry(status)}</span></div>
+            <div class="output-chips">${outputChips}</div>
+            <button data-switch="${input.id}" class="btn ${isActive ? "btn-ghost" : "btn-primary"}" style="width:100%;margin-top:6px">Switch Here</button>
+          </div>`;
+        }).join("");
+      }
+
+      document.getElementById("startBtn").addEventListener("click", () => withRefresh(() => api.start(), "Routing started"));
+      document.getElementById("stopBtn").addEventListener("click",  () => withRefresh(() => api.stop(),  "Routing stopped"));
+
+      document.addEventListener("click", e => {
+        const sw = e.target.closest("[data-switch]")?.getAttribute("data-switch");
+        if (sw) withRefresh(() => api.switchInput(sw), "Switched");
+      });
+
+      document.addEventListener("change", e => {
+        const ri = e.target.getAttribute("data-route-input");
+        const ro = e.target.getAttribute("data-route-output");
+        if (ri && ro) withRefresh(() => api.setRoute({input_id: ri, output_id: ro, selected: e.target.checked}), "Route updated");
+      });
+
+      refresh();
+      setInterval(() => refresh(), 3000);
+    </script>
+  </body>
+</html>
