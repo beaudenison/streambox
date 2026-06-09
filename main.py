@@ -12,9 +12,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -143,6 +143,23 @@ def find_output(state: Dict[str, Any], output_id: str) -> Dict[str, Any]:
 
 def ingest_url_for_key(stream_key: str) -> str:
     return f"rtmp://{PUBLIC_HOST}/{INGEST_APP}"
+
+
+def resolve_public_host(request: Optional[Request] = None) -> str:
+    configured = (PUBLIC_HOST or "").strip()
+    if configured and configured not in {"localhost", "127.0.0.1"}:
+        return configured
+
+    if request is not None and request.url.hostname:
+        browser_host = request.url.hostname.strip()
+        if browser_host and browser_host not in {"localhost", "127.0.0.1"}:
+            return browser_host
+
+    return configured or "localhost"
+
+
+def ingest_url_for_request(request: Optional[Request] = None) -> str:
+    return f"rtmp://{resolve_public_host(request)}/{INGEST_APP}"
 
 
 def input_source_url(stream_key: str) -> str:
@@ -537,19 +554,19 @@ async def startup() -> None:
 
 
 @app.get("/api/state")
-async def get_state() -> Dict[str, Any]:
+async def get_state(request: Request) -> Dict[str, Any]:
     state = load_state()
     runtime_snapshot = runtime_status_snapshot(state)
     runtime_snapshot["input_status"] = await collect_input_status(state)
     return {
         "state": state,
         "runtime": runtime_snapshot,
-        "obs_server": f"rtmp://{PUBLIC_HOST}/{INGEST_APP}",
+        "obs_server": ingest_url_for_request(request),
     }
 
 
 @app.post("/api/inputs")
-async def create_input(payload: InputCreate) -> Dict[str, Any]:
+async def create_input(payload: InputCreate, request: Request) -> Dict[str, Any]:
     async with runtime.lock:
         state = load_state()
 
@@ -572,10 +589,69 @@ async def create_input(payload: InputCreate) -> Dict[str, Any]:
         return {
             "input": created,
             "obs": {
-                "server": ingest_url_for_key(created["stream_key"]),
+                "server": ingest_url_for_request(request),
                 "stream_key": created["stream_key"],
             },
         }
+
+
+@app.get("/api/hls/{stream_key}.m3u8")
+async def hls_manifest_proxy(stream_key: str) -> Response:
+    source_url = input_hls_url(stream_key)
+    try:
+        with urllib.request.urlopen(source_url, timeout=2.0) as resp:
+            if resp.status != 200:
+                raise HTTPException(status_code=404, detail="HLS manifest not found")
+            data = resp.read()
+            text = data.decode("utf-8", errors="ignore")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=404, detail="HLS manifest not found")
+
+    # Rewrite segment URIs to same-origin proxy paths so browsers avoid cross-port restrictions.
+    rewritten_lines: List[str] = []
+    for line in text.splitlines():
+        raw = line.strip()
+        if raw and not raw.startswith("#") and raw.endswith(".ts"):
+            segment = raw.split("?", 1)[0].split("/", 1)[-1]
+            rewritten_lines.append(f"/api/hls-segment/{urllib.parse.quote(segment, safe='')}")
+        else:
+            rewritten_lines.append(line)
+
+    body = "\n".join(rewritten_lines) + "\n"
+    return Response(
+        content=body,
+        media_type="application/vnd.apple.mpegurl",
+        headers={
+            "Cache-Control": "no-cache",
+            "Access-Control-Allow-Origin": "*",
+        },
+    )
+
+
+@app.get("/api/hls-segment/{segment_name}")
+async def hls_segment_proxy(segment_name: str) -> Response:
+    safe_name = segment_name.split("/", 1)[-1]
+    source_url = f"http://{RTMP_HOST}:{RTMP_HTTP_PORT}/hls/{urllib.parse.quote(safe_name, safe='')}"
+    try:
+        with urllib.request.urlopen(source_url, timeout=2.0) as resp:
+            if resp.status != 200:
+                raise HTTPException(status_code=404, detail="HLS segment not found")
+            data = resp.read()
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=404, detail="HLS segment not found")
+
+    return Response(
+        content=data,
+        media_type="video/mp2t",
+        headers={
+            "Cache-Control": "no-cache",
+            "Access-Control-Allow-Origin": "*",
+        },
+    )
 
 
 @app.delete("/api/inputs/{input_id}")

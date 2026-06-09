@@ -429,7 +429,7 @@
 
       function hlsPreviewUrl(input) {
         const key = encodeURIComponent(input.stream_key);
-        return `http://${location.hostname}:8081/hls/${key}.m3u8`;
+        return `/api/hls/${key}.m3u8`;
       }
 
       function destroyPreviewPlayer() {
