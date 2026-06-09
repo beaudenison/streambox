@@ -1,6 +1,5 @@
 import asyncio
 import atexit
-import email.utils
 import json
 import os
 import subprocess
@@ -65,7 +64,6 @@ class Runtime:
         self.input_status_cache: Dict[str, Dict[str, Any]] = {}
         self.input_status_cache_at: float = 0.0
         self.input_last_online_at: Dict[str, float] = {}
-        self.input_hls_sequence: Dict[str, Dict[str, float]] = {}
 
 
 runtime = Runtime()
@@ -208,43 +206,7 @@ def input_hls_url(stream_key: str) -> str:
 
 
 def probe_input_stream_hls(input_item: Dict[str, Any]) -> Dict[str, Any]:
-    hls_url = input_hls_url(input_item["stream_key"])
-    stale_after_seconds = 12.0
-
-    try:
-        with urllib.request.urlopen(hls_url, timeout=1.5) as resp:
-            if resp.status != 200:
-                return {"online": False, "reason": "No active stream"}
-            last_modified = resp.headers.get("Last-Modified")
-            manifest_text = resp.read(32768).decode("utf-8", errors="ignore")
-    except Exception:
-        return {"online": False, "reason": "No active stream"}
-
-    if "#EXTM3U" not in manifest_text:
-        return {"online": False, "reason": "No active stream"}
-
-    if "#EXT-X-ENDLIST" in manifest_text or "#EXTINF" not in manifest_text:
-        return {"online": False, "reason": "No active stream"}
-
-    media_sequence: Optional[int] = None
-    for line in manifest_text.splitlines():
-        if line.startswith("#EXT-X-MEDIA-SEQUENCE:"):
-            try:
-                media_sequence = int(line.split(":", 1)[1].strip())
-            except ValueError:
-                media_sequence = None
-            break
-
-    if last_modified:
-        try:
-            modified_at = email.utils.parsedate_to_datetime(last_modified)
-            if modified_at.tzinfo is None:
-                modified_at = modified_at.replace(tzinfo=timezone.utc)
-            age_seconds = (datetime.now(timezone.utc) - modified_at.astimezone(timezone.utc)).total_seconds()
-            if age_seconds > stale_after_seconds:
-                return {"online": False, "reason": "No active stream"}
-        except Exception:
-            pass
+    source_url = input_source_url(input_item["stream_key"])
 
     cmd = [
         "ffprobe",
@@ -260,60 +222,32 @@ def probe_input_stream_hls(input_item: Dict[str, Any]) -> Dict[str, Any]:
         "format=bit_rate",
         "-of",
         "json",
-        hls_url,
+        source_url,
     ]
 
     try:
         completed = subprocess.run(cmd, capture_output=True, text=True, timeout=4.0, check=False)
     except subprocess.TimeoutExpired:
-        return {
-            "online": True,
-            "reason": "Live (telemetry pending)",
-            "last_seen": now_iso(),
-            "codec": None,
-            "fps": None,
-            "resolution": None,
-            "bitrate_kbps": None,
-            "hls_media_sequence": media_sequence,
-        }
+        return {"online": False, "reason": "No active stream"}
 
     if completed.returncode != 0:
-        return {
-            "online": True,
-            "reason": "Live (telemetry unavailable)",
-            "last_seen": now_iso(),
-            "codec": None,
-            "fps": None,
-            "resolution": None,
-            "bitrate_kbps": None,
-            "hls_media_sequence": media_sequence,
-        }
+        return {"online": False, "reason": "No active stream"}
 
     try:
         payload = json.loads(completed.stdout or "{}")
     except json.JSONDecodeError:
-        return {
-            "online": True,
-            "reason": "Live (telemetry parse error)",
-            "last_seen": now_iso(),
-            "codec": None,
-            "fps": None,
-            "resolution": None,
-            "bitrate_kbps": None,
-            "hls_media_sequence": media_sequence,
-        }
+        return {"online": False, "reason": "No active stream"}
 
     streams: List[Dict[str, Any]] = payload.get("streams", [])
     if not streams:
         return {
             "online": True,
-            "reason": "Live",
+            "reason": "Live (telemetry limited)",
             "last_seen": now_iso(),
             "codec": None,
             "fps": None,
             "resolution": None,
             "bitrate_kbps": None,
-            "hls_media_sequence": media_sequence,
         }
 
     video_stream = next((x for x in streams if x.get("codec_type") == "video"), None)
@@ -335,8 +269,24 @@ def probe_input_stream_hls(input_item: Dict[str, Any]) -> Dict[str, Any]:
         "fps": parse_frame_rate(str(primary_stream.get("avg_frame_rate", ""))),
         "resolution": resolution,
         "last_seen": now_iso(),
-        "hls_media_sequence": media_sequence,
     }
+
+
+def preview_hls_ready(stream_key: str) -> bool:
+    hls_url = input_hls_url(stream_key)
+    try:
+        with urllib.request.urlopen(hls_url, timeout=1.5) as resp:
+            if resp.status != 200:
+                return False
+            manifest_text = resp.read(32768).decode("utf-8", errors="ignore")
+    except Exception:
+        return False
+
+    if "#EXTM3U" not in manifest_text:
+        return False
+    if "#EXT-X-ENDLIST" in manifest_text:
+        return False
+    return "#EXTINF" in manifest_text
 
 
 async def collect_input_status(state: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
@@ -350,34 +300,24 @@ async def collect_input_status(state: Dict[str, Any]) -> Dict[str, Dict[str, Any
         runtime.input_status_cache_at = now_mono
         return {}
 
-    tasks = [asyncio.to_thread(probe_input_stream_hls, item) for item in inputs]
-    results = await asyncio.gather(*tasks)
+    probe_tasks = [asyncio.to_thread(probe_input_stream_hls, item) for item in inputs]
+    preview_tasks = [asyncio.to_thread(preview_hls_ready, item["stream_key"]) for item in inputs]
+    results = await asyncio.gather(*probe_tasks)
+    preview_results = await asyncio.gather(*preview_tasks)
 
     merged: Dict[str, Dict[str, Any]] = {}
     previous = runtime.input_status_cache
-    for input_item, status in zip(inputs, results):
+    for input_item, status, preview_ready in zip(inputs, results, preview_results):
         input_id = input_item["id"]
         existing = previous.get(input_id, {})
 
         if status.get("online"):
-            seq = status.get("hls_media_sequence")
-            if seq is not None:
-                prev = runtime.input_hls_sequence.get(input_id)
-                if prev is not None and int(prev.get("sequence", -1)) == int(seq):
-                    if now_mono - float(prev.get("updated_at", now_mono)) > 10.0:
-                        merged[input_id] = {"online": False, "reason": "No active stream"}
-                        continue
-                else:
-                    runtime.input_hls_sequence[input_id] = {
-                        "sequence": float(seq),
-                        "updated_at": now_mono,
-                    }
-
             runtime.input_last_online_at[input_id] = now_mono
-            status.pop("hls_media_sequence", None)
+            status["preview_ready"] = preview_ready
             merged[input_id] = status
             continue
 
+        status["preview_ready"] = preview_ready
         if existing.get("last_seen"):
             status["last_seen"] = existing.get("last_seen")
         merged[input_id] = status
