@@ -479,18 +479,9 @@
 
         const status = runtime?.input_status?.[selected.id] || { online: false, reason: "No active stream" };
         const isOnline = !!status.online;
-        const previewReady = !!status.preview_ready;
 
         if (!isOnline) {
           hint.textContent = `Preview source: ${selected.name} (${status.reason || "No active stream"})`;
-          clearPreviewVideo(video);
-          lastPreviewInputId = selected.id;
-          lastPreviewOnline = false;
-          return;
-        }
-
-        if (!previewReady) {
-          hint.textContent = `Preview source: ${selected.name} (live ingest detected, waiting for HLS preview)`;
           clearPreviewVideo(video);
           lastPreviewInputId = selected.id;
           lastPreviewOnline = false;

@@ -307,6 +307,7 @@ async def collect_input_status(state: Dict[str, Any]) -> Dict[str, Dict[str, Any
 
     merged: Dict[str, Dict[str, Any]] = {}
     previous = runtime.input_status_cache
+    hold_seconds = 20.0
     for input_item, status, preview_ready in zip(inputs, results, preview_results):
         input_id = input_item["id"]
         existing = previous.get(input_id, {})
@@ -315,6 +316,21 @@ async def collect_input_status(state: Dict[str, Any]) -> Dict[str, Dict[str, Any
             runtime.input_last_online_at[input_id] = now_mono
             status["preview_ready"] = preview_ready
             merged[input_id] = status
+            continue
+
+        last_online = runtime.input_last_online_at.get(input_id)
+        if last_online is not None and (now_mono - last_online) < hold_seconds:
+            merged[input_id] = {
+                "online": True,
+                "degraded": True,
+                "reason": "Signal unstable; holding live state",
+                "preview_ready": preview_ready,
+                "last_seen": existing.get("last_seen"),
+                "bitrate_kbps": existing.get("bitrate_kbps"),
+                "codec": existing.get("codec"),
+                "fps": existing.get("fps"),
+                "resolution": existing.get("resolution"),
+            }
             continue
 
         status["preview_ready"] = preview_ready
@@ -554,7 +570,7 @@ async def hls_manifest_proxy(stream_key: str) -> Response:
     for line in text.splitlines():
         raw = line.strip()
         if raw and not raw.startswith("#") and raw.endswith(".ts"):
-            segment = raw.split("?", 1)[0].split("/", 1)[-1]
+            segment = raw.split("?", 1)[0]
             rewritten_lines.append(f"/api/hls-segment/{urllib.parse.quote(segment, safe='')}")
         else:
             rewritten_lines.append(line)
@@ -570,9 +586,9 @@ async def hls_manifest_proxy(stream_key: str) -> Response:
     )
 
 
-@app.get("/api/hls-segment/{segment_name}")
+@app.get("/api/hls-segment/{segment_name:path}")
 async def hls_segment_proxy(segment_name: str) -> Response:
-    safe_name = segment_name.split("/", 1)[-1]
+    safe_name = segment_name.lstrip("/")
     source_url = f"http://{RTMP_HOST}:{RTMP_HTTP_PORT}/hls/{urllib.parse.quote(safe_name, safe='')}"
     try:
         with urllib.request.urlopen(source_url, timeout=2.0) as resp:
