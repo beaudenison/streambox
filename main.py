@@ -65,6 +65,7 @@ class Runtime:
         self.input_status_cache: Dict[str, Dict[str, Any]] = {}
         self.input_status_cache_at: float = 0.0
         self.input_last_online_at: Dict[str, float] = {}
+        self.input_hls_sequence: Dict[str, Dict[str, float]] = {}
 
 
 runtime = Runtime()
@@ -198,8 +199,24 @@ def probe_input_stream_hls(input_item: Dict[str, Any]) -> Dict[str, Any]:
             if resp.status != 200:
                 return {"online": False, "reason": "No active stream"}
             last_modified = resp.headers.get("Last-Modified")
+            manifest_text = resp.read(32768).decode("utf-8", errors="ignore")
     except Exception:
         return {"online": False, "reason": "No active stream"}
+
+    if "#EXTM3U" not in manifest_text:
+        return {"online": False, "reason": "No active stream"}
+
+    if "#EXT-X-ENDLIST" in manifest_text or "#EXTINF" not in manifest_text:
+        return {"online": False, "reason": "No active stream"}
+
+    media_sequence: Optional[int] = None
+    for line in manifest_text.splitlines():
+        if line.startswith("#EXT-X-MEDIA-SEQUENCE:"):
+            try:
+                media_sequence = int(line.split(":", 1)[1].strip())
+            except ValueError:
+                media_sequence = None
+            break
 
     if last_modified:
         try:
@@ -240,6 +257,7 @@ def probe_input_stream_hls(input_item: Dict[str, Any]) -> Dict[str, Any]:
             "fps": None,
             "resolution": None,
             "bitrate_kbps": None,
+            "hls_media_sequence": media_sequence,
         }
 
     if completed.returncode != 0:
@@ -251,6 +269,7 @@ def probe_input_stream_hls(input_item: Dict[str, Any]) -> Dict[str, Any]:
             "fps": None,
             "resolution": None,
             "bitrate_kbps": None,
+            "hls_media_sequence": media_sequence,
         }
 
     try:
@@ -264,6 +283,7 @@ def probe_input_stream_hls(input_item: Dict[str, Any]) -> Dict[str, Any]:
             "fps": None,
             "resolution": None,
             "bitrate_kbps": None,
+            "hls_media_sequence": media_sequence,
         }
 
     streams: List[Dict[str, Any]] = payload.get("streams", [])
@@ -276,6 +296,7 @@ def probe_input_stream_hls(input_item: Dict[str, Any]) -> Dict[str, Any]:
             "fps": None,
             "resolution": None,
             "bitrate_kbps": None,
+            "hls_media_sequence": media_sequence,
         }
 
     video_stream = next((x for x in streams if x.get("codec_type") == "video"), None)
@@ -297,6 +318,7 @@ def probe_input_stream_hls(input_item: Dict[str, Any]) -> Dict[str, Any]:
         "fps": parse_frame_rate(str(primary_stream.get("avg_frame_rate", ""))),
         "resolution": resolution,
         "last_seen": now_iso(),
+        "hls_media_sequence": media_sequence,
     }
 
 
@@ -321,7 +343,21 @@ async def collect_input_status(state: Dict[str, Any]) -> Dict[str, Dict[str, Any
         existing = previous.get(input_id, {})
 
         if status.get("online"):
+            seq = status.get("hls_media_sequence")
+            if seq is not None:
+                prev = runtime.input_hls_sequence.get(input_id)
+                if prev is not None and int(prev.get("sequence", -1)) == int(seq):
+                    if now_mono - float(prev.get("updated_at", now_mono)) > 10.0:
+                        merged[input_id] = {"online": False, "reason": "No active stream"}
+                        continue
+                else:
+                    runtime.input_hls_sequence[input_id] = {
+                        "sequence": float(seq),
+                        "updated_at": now_mono,
+                    }
+
             runtime.input_last_online_at[input_id] = now_mono
+            status.pop("hls_media_sequence", None)
             merged[input_id] = status
             continue
 
