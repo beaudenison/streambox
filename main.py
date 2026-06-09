@@ -1,5 +1,6 @@
 import asyncio
 import atexit
+import email.utils
 import json
 import os
 import subprocess
@@ -190,13 +191,26 @@ def input_hls_url(stream_key: str) -> str:
 
 def probe_input_stream_hls(input_item: Dict[str, Any]) -> Dict[str, Any]:
     hls_url = input_hls_url(input_item["stream_key"])
+    stale_after_seconds = 12.0
 
     try:
-        with urllib.request.urlopen(hls_url, timeout=2.0) as resp:
+        with urllib.request.urlopen(hls_url, timeout=1.5) as resp:
             if resp.status != 200:
                 return {"online": False, "reason": "No active stream"}
+            last_modified = resp.headers.get("Last-Modified")
     except Exception:
         return {"online": False, "reason": "No active stream"}
+
+    if last_modified:
+        try:
+            modified_at = email.utils.parsedate_to_datetime(last_modified)
+            if modified_at.tzinfo is None:
+                modified_at = modified_at.replace(tzinfo=timezone.utc)
+            age_seconds = (datetime.now(timezone.utc) - modified_at.astimezone(timezone.utc)).total_seconds()
+            if age_seconds > stale_after_seconds:
+                return {"online": False, "reason": "No active stream"}
+        except Exception:
+            pass
 
     cmd = [
         "ffprobe",
@@ -302,28 +316,13 @@ async def collect_input_status(state: Dict[str, Any]) -> Dict[str, Dict[str, Any
 
     merged: Dict[str, Dict[str, Any]] = {}
     previous = runtime.input_status_cache
-    hold_seconds = 15.0
     for input_item, status in zip(inputs, results):
         input_id = input_item["id"]
-        existing = previous.get(input_item["id"], {})
+        existing = previous.get(input_id, {})
+
         if status.get("online"):
             runtime.input_last_online_at[input_id] = now_mono
             merged[input_id] = status
-            continue
-
-        last_online = runtime.input_last_online_at.get(input_id)
-        if last_online is not None and (now_mono - last_online) < hold_seconds:
-            held = {
-                "online": True,
-                "degraded": True,
-                "reason": "Intermittent signal; holding last telemetry",
-                "last_seen": existing.get("last_seen"),
-                "bitrate_kbps": existing.get("bitrate_kbps"),
-                "codec": existing.get("codec"),
-                "fps": existing.get("fps"),
-                "resolution": existing.get("resolution"),
-            }
-            merged[input_id] = held
             continue
 
         if existing.get("last_seen"):

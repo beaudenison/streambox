@@ -327,6 +327,7 @@
       let view = null;
       let hlsPlayer = null;
       let lastPreviewInputId = null;
+      let lastPreviewOnline = null;
 
       function handleApiResponse(response) {
         if (!response.ok) {
@@ -438,34 +439,57 @@
         }
       }
 
-      function renderPreview(state) {
+      function clearPreviewVideo(video) {
+        destroyPreviewPlayer();
+        video.pause();
+        video.removeAttribute("src");
+        video.load();
+      }
+
+      function renderPreview(state, runtime) {
         const select = document.getElementById("previewInputSelect");
         const hint = document.getElementById("previewHint");
         const video = document.getElementById("previewVideo");
 
         if (!state.inputs.length) {
           select.innerHTML = "";
-          destroyPreviewPlayer();
-          video.removeAttribute("src");
-          video.load();
+          clearPreviewVideo(video);
           hint.textContent = "Add an input and start streaming from OBS to see preview.";
+          lastPreviewInputId = null;
+          lastPreviewOnline = null;
           return;
         }
 
+        const previousSelection = select.value;
         select.innerHTML = state.inputs
           .map((input) => `<option value="${input.id}">${input.name}</option>`)
           .join("");
 
-        const desiredInputId = select.value || state.active_input_id || state.inputs[0].id;
+        const desiredInputId = previousSelection || state.active_input_id || state.inputs[0].id;
         select.value = desiredInputId;
 
         const selected = state.inputs.find((x) => x.id === desiredInputId) || state.inputs[0];
         if (!selected) {
           hint.textContent = "No preview input selected.";
+          clearPreviewVideo(video);
+          lastPreviewInputId = null;
+          lastPreviewOnline = null;
           return;
         }
 
-        if (lastPreviewInputId === selected.id) {
+        const status = runtime?.input_status?.[selected.id] || { online: false, reason: "No active stream" };
+        const isOnline = !!status.online;
+
+        if (!isOnline) {
+          hint.textContent = `Preview source: ${selected.name} (${status.reason || "No active stream"})`;
+          clearPreviewVideo(video);
+          lastPreviewInputId = selected.id;
+          lastPreviewOnline = false;
+          return;
+        }
+
+        const shouldReuse = lastPreviewInputId === selected.id && lastPreviewOnline === true;
+        if (shouldReuse) {
           hint.textContent = `Preview source: ${selected.name}`;
           return;
         }
@@ -479,6 +503,11 @@
             lowLatencyMode: false,
             liveSyncDurationCount: 3,
           });
+          hlsPlayer.on(window.Hls.Events.ERROR, (_event, data) => {
+            if (data?.fatal) {
+              lastPreviewOnline = false;
+            }
+          });
           hlsPlayer.loadSource(url);
           hlsPlayer.attachMedia(video);
         } else {
@@ -487,6 +516,7 @@
 
         video.play().catch(() => {});
         lastPreviewInputId = selected.id;
+        lastPreviewOnline = true;
       }
 
       function renderOutputs(state, runtime) {
@@ -511,7 +541,7 @@
         renderControlPanelMatrix(state, runtime);
         renderInputs(state, obs_server);
         renderOutputs(state, runtime);
-        renderPreview(state);
+        renderPreview(state, runtime);
 
         const serverEl = document.getElementById("obsServer");
         const hintEl = document.getElementById("obsServerHint");
@@ -558,8 +588,9 @@
 
       document.getElementById("previewInputSelect").addEventListener("change", () => {
         lastPreviewInputId = null;
+        lastPreviewOnline = null;
         if (view?.state) {
-          renderPreview(view.state);
+          renderPreview(view.state, view.runtime);
         }
       });
 
